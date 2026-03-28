@@ -27,6 +27,8 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 struct SignRequest {
     tx: serde_json::Value,
     secrets: SecretsMap,
+    #[serde(default)]
+    height: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -108,7 +110,7 @@ fn do_sign(body: &[u8]) -> Result<serde_json::Value, String> {
     )
     .map_err(|e| format!("Failed to create tx context: {:?}", e))?;
 
-    let state_context = dummy_state_context();
+    let state_context = make_state_context(req.height.unwrap_or(0));
 
     // Sign
     let signed_tx = wallet
@@ -118,12 +120,9 @@ fn do_sign(body: &[u8]) -> Result<serde_json::Value, String> {
     serde_json::to_value(&signed_tx).map_err(|e| format!("Failed to serialize signed tx: {}", e))
 }
 
-fn dummy_state_context() -> ergo_lib::chain::ergo_state_context::ErgoStateContext {
-    // For simple P2PK / proveDlog signing, the state context values
-    // don't affect the Schnorr signature. We use dummy values.
-    // Scripts that check HEIGHT or CONTEXT.preHeader.timestamp would
-    // need real values — but our subscription guard's signing paths
-    // (collect, cancel, extend, migrate) only need proveDlog proofs.
+fn make_state_context(height: u32) -> ergo_lib::chain::ergo_state_context::ErgoStateContext {
+    // The height is used by scripts that check HEIGHT (like our subscription guard).
+    // The caller should pass the current blockchain height.
     let header_json = serde_json::json!({
         "version": 2,
         "id": "0000000000000000000000000000000000000000000000000000000000000000",
@@ -133,7 +132,7 @@ fn dummy_state_context() -> ergo_lib::chain::ergo_state_context::ErgoStateContex
         "transactionsRoot": "0000000000000000000000000000000000000000000000000000000000000000",
         "timestamp": 0u64,
         "nBits": 16842752u64,
-        "height": 0u32,
+        "height": height,
         "extensionHash": "0000000000000000000000000000000000000000000000000000000000000000",
         "powSolutions": {
             "pk": "0279be667ef9dcbbac55a06295ce870b07029bfcdb2dce28d959f2815b16f81798",
