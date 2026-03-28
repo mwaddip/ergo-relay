@@ -1,7 +1,7 @@
 //! ergo-peers — Ergo P2P peer discovery daemon.
 //!
 //! Discovers reachable Ergo peers by connecting to seed nodes and exchanging
-//! peer lists. Writes a JSON file with discovered peers for ergo-signer to
+//! peer lists. Writes a JSON file with discovered peers for ergo-relay to
 //! use when broadcasting transactions.
 //!
 //! Usage:

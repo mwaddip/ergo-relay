@@ -1,8 +1,8 @@
 [package]
-name = "ergo-signer"
+name = "ergo-relay"
 version = "0.1.0"
 edition = "2021"
-description = "Minimal Ergo transaction signing HTTP service for BlockHost"
+description = "Minimal Ergo transaction signing and P2P relay for BlockHost"
 
 [dependencies]
 ergo-lib = { git = "https://github.com/ergoplatform/sigma-rust.git", features = ["json"] }
@@ -23,7 +23,7 @@ codegen-units = 1
 version = "0.10"
 
 [[bin]]
-name = "ergo-signer"
+name = "ergo-relay"
 path = "src/main.rs"
 
 [[bin]]

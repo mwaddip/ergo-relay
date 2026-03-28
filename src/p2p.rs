@@ -402,7 +402,7 @@ pub fn broadcast_tx(addr: SocketAddr, network: Network, tx_id: &[u8; 32], tx_byt
     stream.set_write_timeout(Some(Duration::from_secs(5)))?;
 
     // 1. Handshake (raw, with session feature)
-    let hs = build_handshake("blockhost-ergo", "ergo-signer", network);
+    let hs = build_handshake("blockhost-ergo", "ergo-relay", network);
     stream.write_all(&hs)?;
     stream.flush()?;
 

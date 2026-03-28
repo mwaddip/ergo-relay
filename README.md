@@ -1,4 +1,4 @@
-# ergo-signer
+# ergo-relay
 
 Minimal Ergo transaction signing and P2P broadcast service. Ships as a standalone Debian package that any Ergo-based BlockHost component can depend on.
 
@@ -12,12 +12,12 @@ No JRE, no Ergo node, no WASM. Two small Rust binaries:
 
 | Binary | Size | Purpose |
 |--------|------|---------|
-| `ergo-signer` | 2.7 MB | HTTP service: signing + P2P broadcast |
+| `ergo-relay` | 2.7 MB | HTTP service: signing + P2P broadcast |
 | `ergo-peers` | 379 KB | Peer discovery (cron job) |
 
 ## Endpoints
 
-`ergo-signer` listens on `127.0.0.1:9064` (configurable via `ERGO_SIGNER_PORT`):
+`ergo-relay` listens on `127.0.0.1:9064` (configurable via `ERGO_SIGNER_PORT`):
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
@@ -42,7 +42,7 @@ Same as the Ergo node's `/transactions` — accepts a signed transaction JSON.
 
 ## Peer discovery
 
-`ergo-peers` connects to seed nodes, exchanges peer lists, and writes a JSON file for `ergo-signer` to read when broadcasting.
+`ergo-peers` connects to seed nodes, exchanges peer lists, and writes a JSON file for `ergo-relay` to read when broadcasting.
 
 ```bash
 ergo-peers [--testnet] [--output /path/to/peers.json] [--min-peers 10]
@@ -58,7 +58,7 @@ Designed to run as a daily cron/timer job.
 cargo build --release
 ```
 
-Binaries at `target/release/ergo-signer` and `target/release/ergo-peers`.
+Binaries at `target/release/ergo-relay` and `target/release/ergo-peers`.
 
 ### Debian package
 
@@ -66,17 +66,17 @@ Binaries at `target/release/ergo-signer` and `target/release/ergo-peers`.
 ./packaging/build.sh
 ```
 
-Produces `ergo-signer_0.1.0_amd64.deb`.
+Produces `ergo-relay_0.1.0_amd64.deb`.
 
 ## Systemd services
 
 The .deb installs:
-- `ergo-signer.service` — signing + broadcast daemon
+- `ergo-relay.service` — signing + broadcast daemon
 - `ergo-peers.timer` — daily peer discovery
 
 ## Package dependencies
 
-Other BlockHost packages declare: `Depends: ergo-signer (>= 0.1.0)`
+Other BlockHost packages declare: `Depends: ergo-relay (>= 0.1.0)`
 
 ## License
 

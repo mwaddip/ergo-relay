@@ -1,4 +1,4 @@
-//! ergo-signer — Minimal Ergo transaction signing HTTP service.
+//! ergo-relay — Minimal Ergo transaction signing HTTP service.
 //!
 //! Exposes two endpoints on localhost:
 //!   POST /wallet/transaction/sign  — sign an unsigned transaction
@@ -186,7 +186,7 @@ fn main() {
         std::process::exit(1);
     });
 
-    eprintln!("ergo-signer v{} listening on {}", VERSION, bind);
+    eprintln!("ergo-relay v{} listening on {}", VERSION, bind);
 
     for mut request in server.incoming_requests() {
         let url = request.url().to_string();
@@ -195,7 +195,7 @@ fn main() {
         match (method, url.as_str()) {
             (Method::Get, "/info") => {
                 let info = InfoResponse {
-                    name: "ergo-signer",
+                    name: "ergo-relay",
                     version: VERSION,
                     status: "ok",
                 };

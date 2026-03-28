@@ -3,21 +3,21 @@ set -e
 
 VERSION="0.1.0"
 ARCH=$(dpkg --print-architecture 2>/dev/null || uname -m | sed 's/x86_64/amd64/')
-PKG_NAME="ergo-signer_${VERSION}_${ARCH}"
+PKG_NAME="ergo-relay_${VERSION}_${ARCH}"
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PKG_DIR="$PROJECT_DIR/packaging/$PKG_NAME"
 
 cleanup() { rm -rf "$PKG_DIR"; }
 trap cleanup EXIT
 
-echo "Building ergo-signer $VERSION ($ARCH)..."
+echo "Building ergo-relay $VERSION ($ARCH)..."
 
 # ── Build Rust binaries ─────────────────────────────────
 echo "Compiling..."
 cd "$PROJECT_DIR"
 cargo build --release
 
-SIGNER="$PROJECT_DIR/target/release/ergo-signer"
+SIGNER="$PROJECT_DIR/target/release/ergo-relay"
 PEERS="$PROJECT_DIR/target/release/ergo-peers"
 
 if [ ! -f "$SIGNER" ] || [ ! -f "$PEERS" ]; then
@@ -25,7 +25,7 @@ if [ ! -f "$SIGNER" ] || [ ! -f "$PEERS" ]; then
     exit 1
 fi
 
-echo "  ergo-signer: $(du -h "$SIGNER" | cut -f1)"
+echo "  ergo-relay: $(du -h "$SIGNER" | cut -f1)"
 echo "  ergo-peers:  $(du -h "$PEERS" | cut -f1)"
 
 # ── Create package directory structure ──────────────────
@@ -37,11 +37,11 @@ mkdir -p "$PKG_DIR/lib/systemd/system"
 
 # ── DEBIAN control ──────────────────────────────────────
 cat > "$PKG_DIR/DEBIAN/control" << CTRL
-Package: ergo-signer
+Package: ergo-relay
 Version: $VERSION
 Architecture: $ARCH
 Depends: libgcc-s1
-Provides: ergo-signer
+Provides: ergo-relay
 Description: Ergo transaction signing and P2P broadcast service
  Minimal sigma-rust based signing service and peer discovery
  for BlockHost Ergo components. No JRE required.
@@ -49,12 +49,12 @@ Maintainer: BlockHost <noreply@blockhost.io>
 CTRL
 
 # ── Install binaries ────────────────────────────────────
-cp "$SIGNER" "$PKG_DIR/usr/bin/ergo-signer"
+cp "$SIGNER" "$PKG_DIR/usr/bin/ergo-relay"
 cp "$PEERS" "$PKG_DIR/usr/bin/ergo-peers"
-chmod 755 "$PKG_DIR/usr/bin/ergo-signer" "$PKG_DIR/usr/bin/ergo-peers"
+chmod 755 "$PKG_DIR/usr/bin/ergo-relay" "$PKG_DIR/usr/bin/ergo-peers"
 
-# ── Systemd service for ergo-signer ─────────────────────
-cat > "$PKG_DIR/lib/systemd/system/ergo-signer.service" << 'UNIT'
+# ── Systemd service for ergo-relay ─────────────────────
+cat > "$PKG_DIR/lib/systemd/system/ergo-relay.service" << 'UNIT'
 [Unit]
 Description=Ergo Transaction Signer (BlockHost)
 After=network.target
@@ -63,7 +63,7 @@ After=network.target
 Type=simple
 User=blockhost
 Group=blockhost
-ExecStart=/usr/bin/ergo-signer
+ExecStart=/usr/bin/ergo-relay
 Restart=always
 RestartSec=5
 NoNewPrivileges=true
@@ -110,8 +110,8 @@ if getent group blockhost >/dev/null; then
     chown root:blockhost /var/lib/blockhost
 fi
 systemctl daemon-reload
-systemctl enable ergo-signer ergo-peers.timer
-systemctl start ergo-signer ergo-peers.timer || true
+systemctl enable ergo-relay ergo-peers.timer
+systemctl start ergo-relay ergo-peers.timer || true
 SCRIPT
 chmod 755 "$PKG_DIR/DEBIAN/postinst"
 
