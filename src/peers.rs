@@ -66,14 +66,16 @@ fn main() {
 
     let mut known: HashSet<SocketAddr> = HashSet::new();
     let mut reachable: HashSet<SocketAddr> = HashSet::new();
-    let max_attempts = 3; // Retry from seeds if no peers found
+    let mut attempt = 0u32;
 
-    for attempt in 0..max_attempts {
+    loop {
         if attempt > 0 {
-            eprintln!("Retrying seed peers in 10s (attempt {}/{})...", attempt + 1, max_attempts);
-            std::thread::sleep(std::time::Duration::from_secs(10));
-            known.clear(); // Re-try seeds
+            let delay = std::cmp::min(10 * (attempt as u64), 60); // 10s, 20s, 30s... cap at 60s
+            eprintln!("Retrying seed peers in {}s (attempt {})...", delay, attempt + 1);
+            std::thread::sleep(std::time::Duration::from_secs(delay));
+            known.clear();
         }
+        attempt += 1;
 
         let mut to_try: Vec<SocketAddr> = seeds.clone();
 
@@ -112,9 +114,11 @@ fn main() {
             to_try = new_peers;
         }
 
-        if !reachable.is_empty() {
+        if reachable.len() >= min_peers {
             break;
         }
+
+        eprintln!("Only {} peer(s) found (need {}), will retry...", reachable.len(), min_peers);
     }
 
     // Write results
