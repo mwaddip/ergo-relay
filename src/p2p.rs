@@ -75,6 +75,13 @@ fn read_vlq_length(cursor: &mut Cursor<&[u8]>) -> std::io::Result<usize> {
     Ok(val as usize)
 }
 
+/// Read a u16 big-endian value (used for feature body lengths in Ergo P2P).
+fn read_u16_be(cursor: &mut Cursor<&[u8]>) -> std::io::Result<u16> {
+    let mut bytes = [0u8; 2];
+    cursor.read_exact(&mut bytes)?;
+    Ok(u16::from_be_bytes(bytes))
+}
+
 fn write_utf8_byte_len(buf: &mut Vec<u8>, s: &str) {
     let bytes = s.as_bytes();
     buf.push(bytes.len() as u8);
@@ -105,10 +112,10 @@ pub fn build_handshake(agent_name: &str, peer_name: &str, network: Network) -> V
     // Agent name (UTF-8 byte-len prefixed)
     write_utf8_byte_len(&mut buf, agent_name);
 
-    // Protocol version: 6.0.1 (match current Ergo nodes)
+    // Protocol version: 6.0.3 (match current testnet nodes)
     buf.push(6); // major
     buf.push(0); // minor
-    buf.push(1); // patch
+    buf.push(3); // patch
 
     // Peer name
     write_utf8_byte_len(&mut buf, peer_name);
@@ -116,13 +123,21 @@ pub fn build_handshake(agent_name: &str, peer_name: &str, network: Network) -> V
     // No public address
     buf.push(0); // hasPublicAddress = false
 
-    // 1 feature: session (id=3) — required for full peer registration
-    buf.push(1); // feature count
+    // 2 features: Mode + Session
+    buf.push(2); // feature count
 
-    // Session feature: id=3, body = 4 bytes magic + 8 bytes random session ID
+    // Mode feature (id=16): NiPoPoW-bootstrapped light node
+    buf.push(16); // feature id
+    buf.extend_from_slice(&5u16.to_be_bytes()); // body length: 5 bytes (u16 big-endian)
+    buf.push(0x00); // stateType = UTXO
+    buf.push(0x01); // verifyingTransactions = true
+    buf.push(0x01); // nipopowBootstrapped = Some
+    buf.push(0x02); // zigzag+VLQ of value 1
+    buf.push(0x01); // blocksToKeep = zigzag+VLQ of -1
+
+    // Session feature (id=3): 4 bytes magic + 8 bytes random session ID
     buf.push(3); // feature id
-    // Body length as VLQ (reference node reads VLQ, not u16 big-endian)
-    write_vlq(&mut buf, 12); // 4 magic + 8 session ID
+    buf.extend_from_slice(&12u16.to_be_bytes()); // body length: 12 bytes (u16 big-endian)
     buf.extend_from_slice(&network.magic()); // network magic
     let session_id = rand_u64();
     buf.extend_from_slice(&session_id.to_be_bytes());
@@ -169,6 +184,7 @@ pub fn parse_handshake(data: &[u8]) -> std::io::Result<PeerInfo> {
     }
 
     // Features (skip — parse errors are non-fatal)
+    // Feature body lengths are u16 big-endian (putUShort/getUShort in JVM reference)
     if let Ok(mut feat_count_buf) = {
         let mut buf = [0u8; 1];
         cursor.read_exact(&mut buf).map(|_| buf)
@@ -177,8 +193,8 @@ pub fn parse_handshake(data: &[u8]) -> std::io::Result<PeerInfo> {
         for _ in 0..feat_count {
             let mut fid = [0u8; 1];
             if cursor.read_exact(&mut fid).is_err() { break; }
-            if let Ok(flen) = read_vlq_length(&mut cursor) {
-                let mut fbody = vec![0u8; flen];
+            if let Ok(flen) = read_u16_be(&mut cursor) {
+                let mut fbody = vec![0u8; flen as usize];
                 if cursor.read_exact(&mut fbody).is_err() { break; }
             } else {
                 break;
@@ -383,13 +399,13 @@ fn parse_handshake_peer_entry(cursor: &mut Cursor<&[u8]>) -> std::io::Result<Opt
         }
     }
 
-    // Features (skip)
+    // Features (skip) — body lengths are u16 big-endian
     let mut feat_count = [0u8; 1];
     cursor.read_exact(&mut feat_count)?;
     for _ in 0..feat_count[0] {
         let mut fid = [0u8; 1];
         cursor.read_exact(&mut fid)?;
-        let flen = read_vlq_length(cursor)?;
+        let flen = read_u16_be(cursor)? as usize;
         let mut fbody = vec![0u8; flen];
         cursor.read_exact(&mut fbody)?;
     }
