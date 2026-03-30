@@ -63,6 +63,18 @@ fn read_vlq(cursor: &mut Cursor<&[u8]>) -> std::io::Result<u64> {
     Ok(result)
 }
 
+/// Read a VLQ value that represents a byte length (capped at 256KB to prevent OOM).
+fn read_vlq_length(cursor: &mut Cursor<&[u8]>) -> std::io::Result<usize> {
+    let val = read_vlq(cursor)?;
+    if val > 256 * 1024 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("VLQ length too large: {} (max 262144)", val),
+        ));
+    }
+    Ok(val as usize)
+}
+
 fn write_utf8_byte_len(buf: &mut Vec<u8>, s: &str) {
     let bytes = s.as_bytes();
     buf.push(bytes.len() as u8);
@@ -93,10 +105,10 @@ pub fn build_handshake(agent_name: &str, peer_name: &str, network: Network) -> V
     // Agent name (UTF-8 byte-len prefixed)
     write_utf8_byte_len(&mut buf, agent_name);
 
-    // Protocol version: 5.0.12 (match current testnet nodes)
-    buf.push(5); // major
+    // Protocol version: 6.0.1 (match current Ergo nodes)
+    buf.push(6); // major
     buf.push(0); // minor
-    buf.push(12); // patch
+    buf.push(1); // patch
 
     // Peer name
     write_utf8_byte_len(&mut buf, peer_name);
@@ -166,8 +178,8 @@ pub fn parse_handshake(data: &[u8]) -> std::io::Result<PeerInfo> {
         for _ in 0..feat_count {
             let mut fid = [0u8; 1];
             if cursor.read_exact(&mut fid).is_err() { break; }
-            if let Ok(flen) = read_vlq(&mut cursor) {
-                let mut fbody = vec![0u8; flen as usize];
+            if let Ok(flen) = read_vlq_length(&mut cursor) {
+                let mut fbody = vec![0u8; flen];
                 if cursor.read_exact(&mut fbody).is_err() { break; }
             } else {
                 break;
@@ -321,7 +333,7 @@ pub fn discover_peers(addr: SocketAddr, network: Network) -> std::io::Result<Vec
                 if code == MSG_PEERS {
                     // Parse peer list
                     let mut cursor = Cursor::new(body.as_slice());
-                    if let Ok(count) = read_vlq(&mut cursor) {
+                    if let Ok(count) = read_vlq_length(&mut cursor) {
                         for _ in 0..count {
                             if let Ok(pi) = parse_handshake_peer_entry(&mut cursor) {
                                 if let Some(addr) = pi {
@@ -378,7 +390,7 @@ fn parse_handshake_peer_entry(cursor: &mut Cursor<&[u8]>) -> std::io::Result<Opt
     for _ in 0..feat_count[0] {
         let mut fid = [0u8; 1];
         cursor.read_exact(&mut fid)?;
-        let flen = read_vlq(cursor)? as usize;
+        let flen = read_vlq_length(cursor)?;
         let mut fbody = vec![0u8; flen];
         cursor.read_exact(&mut fbody)?;
     }

@@ -17,7 +17,7 @@ use std::collections::HashSet;
 use std::net::SocketAddr;
 
 const DEFAULT_OUTPUT: &str = "/var/lib/blockhost/ergo-peers.json";
-const DEFAULT_MIN_PEERS: usize = 3;
+const DEFAULT_MIN_PEERS: usize = 1;
 const MAX_ROUNDS: usize = 5;
 
 // Known seed peers (testnet and mainnet)
