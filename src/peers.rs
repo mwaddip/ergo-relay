@@ -35,7 +35,9 @@ const MAINNET_SEEDS: &[&str] = &[
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    let testnet = args.iter().any(|a| a == "--testnet");
+    // Detect testnet from --testnet flag OR /etc/blockhost/.testing-mode file
+    let testnet = args.iter().any(|a| a == "--testnet")
+        || std::path::Path::new("/etc/blockhost/.testing-mode").exists();
     let network = if testnet { Network::Testnet } else { Network::Mainnet };
 
     let output = args.iter()
