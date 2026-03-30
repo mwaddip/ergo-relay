@@ -57,50 +57,81 @@ fn main() {
         .filter_map(|s| s.parse().ok())
         .collect();
 
+    // Load previously discovered peers (if any) as additional candidates
+    let mut previously_known: Vec<SocketAddr> = Vec::new();
+    if let Ok(data) = std::fs::read_to_string(output) {
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&data) {
+            if let Some(peers) = json["peers"].as_array() {
+                for p in peers {
+                    if let Some(s) = p.as_str() {
+                        if let Ok(addr) = s.parse() {
+                            previously_known.push(addr);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     eprintln!(
-        "ergo-peers: discovering {} peers ({}, {} seeds)",
+        "ergo-peers: discovering {} peers ({}, {} seeds, {} previously known)",
         min_peers,
         if testnet { "testnet" } else { "mainnet" },
         seeds.len(),
+        previously_known.len(),
     );
 
-    let mut known: HashSet<SocketAddr> = HashSet::new();
-    let mut reachable: HashSet<SocketAddr> = HashSet::new();
+    // Track all peers we've ever verified as reachable (grows across runs)
+    let mut all_reachable: HashSet<SocketAddr> = HashSet::new();
     let mut attempt = 0u32;
 
     loop {
         if attempt > 0 {
-            let delay = std::cmp::min(10 * (attempt as u64), 60); // 10s, 20s, 30s... cap at 60s
-            eprintln!("Retrying seed peers in {}s (attempt {})...", delay, attempt + 1);
+            let delay = std::cmp::min(10 * (attempt as u64), 60);
+            eprintln!("Retrying in {}s (attempt {})...", delay, attempt + 1);
             std::thread::sleep(std::time::Duration::from_secs(delay));
-            known.clear();
         }
         attempt += 1;
 
-        let mut to_try: Vec<SocketAddr> = seeds.clone();
+        let mut known_this_round: HashSet<SocketAddr> = HashSet::new();
+        let mut newly_reachable: HashSet<SocketAddr> = HashSet::new();
+
+        // Start with: previously known peers first (likely still reachable), then seeds
+        let mut to_try: Vec<SocketAddr> = Vec::new();
+        for p in &previously_known {
+            if !known_this_round.contains(p) {
+                to_try.push(*p);
+            }
+        }
+        for s in &seeds {
+            if !known_this_round.contains(s) {
+                to_try.push(*s);
+            }
+        }
 
         for round in 0..MAX_ROUNDS {
-            if reachable.len() >= min_peers {
+            if newly_reachable.len() + all_reachable.len() >= min_peers {
                 break;
             }
 
-            eprintln!("Round {}: trying {} peers (have {} reachable)", round + 1, to_try.len(), reachable.len());
+            eprintln!("Round {}: trying {} peers (have {} reachable)",
+                round + 1, to_try.len(), newly_reachable.len() + all_reachable.len());
 
             let mut new_peers: Vec<SocketAddr> = Vec::new();
 
             for addr in &to_try {
-                if known.contains(addr) {
+                if known_this_round.contains(addr) {
                     continue;
                 }
-                known.insert(*addr);
+                known_this_round.insert(*addr);
 
                 eprint!("  Trying {}... ", addr);
                 match discover_peers(*addr, network) {
                     Ok(peers) => {
                         eprintln!("got {} peers", peers.len());
-                        reachable.insert(*addr);
+                        newly_reachable.insert(*addr);
                         for p in peers {
-                            if !known.contains(&p) {
+                            if !known_this_round.contains(&p) {
                                 new_peers.push(p);
                             }
                         }
@@ -114,16 +145,19 @@ fn main() {
             to_try = new_peers;
         }
 
-        if reachable.len() >= min_peers {
+        // Merge newly discovered into cumulative set
+        all_reachable.extend(&newly_reachable);
+
+        if all_reachable.len() >= min_peers {
             break;
         }
 
-        eprintln!("Only {} peer(s) found (need {}), will retry...", reachable.len(), min_peers);
+        eprintln!("Only {} peer(s) found (need {}), will retry...", all_reachable.len(), min_peers);
     }
 
-    // Write results
-    let peers_list: Vec<String> = reachable.iter().map(|a| a.to_string()).collect();
-    eprintln!("Discovered {} reachable peers", peers_list.len());
+    // Write results — union of all reachable peers (list grows over runs)
+    let peers_list: Vec<String> = all_reachable.iter().map(|a| a.to_string()).collect();
+    eprintln!("Total reachable peers: {}", peers_list.len());
 
     let json = serde_json::json!({
         "network": if testnet { "testnet" } else { "mainnet" },
