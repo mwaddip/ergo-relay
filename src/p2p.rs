@@ -121,8 +121,9 @@ pub fn build_handshake(agent_name: &str, peer_name: &str, network: Network) -> V
 
     // Session feature: id=3, body = 4 bytes magic + 8 bytes random session ID
     buf.push(3); // feature id
-    // Body length as VLQ (reference node reads VLQ, not u16 big-endian)
-    write_vlq(&mut buf, 12); // 4 magic + 8 session ID
+    // Body length as unsigned short (2 bytes big-endian) — matches working Ergo nodes
+    let session_body_len: u16 = 12; // 4 magic + 8 session ID
+    buf.extend_from_slice(&session_body_len.to_be_bytes());
     buf.extend_from_slice(&network.magic()); // network magic
     let session_id = rand_u64();
     buf.extend_from_slice(&session_id.to_be_bytes());
