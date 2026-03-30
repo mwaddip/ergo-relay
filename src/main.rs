@@ -248,12 +248,18 @@ fn main() {
                     }
                     Err(detail) => {
                         eprintln!("Broadcast error: {}", detail);
+                        // Distinguish between "no peers" (503) and "bad tx" (400)
+                        let (code, reason) = if detail.contains("broadcast to any peer") {
+                            (503, "service.unavailable")
+                        } else {
+                            (400, "bad.request")
+                        };
                         let err = ErrorResponse {
-                            error: 400,
-                            reason: "bad.request",
+                            error: code,
+                            reason,
                             detail,
                         };
-                        let _ = request.respond(json_response(400, &err));
+                        let _ = request.respond(json_response(code as u16, &err));
                     }
                 }
             }
