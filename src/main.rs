@@ -311,7 +311,9 @@ fn do_broadcast(body: &[u8]) -> Result<String, String> {
     let peers_file = std::env::var("ERGO_PEERS_FILE")
         .unwrap_or_else(|_| "/var/lib/blockhost/ergo-peers.json".to_string());
 
-    let sent = p2p::broadcast_tx_to_peers(&peers_file, network, &tx_id_bytes, &tx_bytes, 3);
+    // Try 1 peer — one successful broadcast is enough (peer propagates to network).
+    // Reduces connection churn that triggers rate-limiting.
+    let sent = p2p::broadcast_tx_to_peers(&peers_file, network, &tx_id_bytes, &tx_bytes, 1);
 
     if sent == 0 {
         return Err("Failed to broadcast to any peer".to_string());

@@ -532,14 +532,15 @@ pub fn broadcast_tx_to_peers(
 
     if peers.is_empty() {
         eprintln!("  No peers in {}, using seed peers", peers_file);
-        // Fall back to seed peers based on network
         let seeds: Vec<SocketAddr> = match network {
             Network::Testnet => vec![
+                "213.239.193.208:9023".parse().unwrap(),
                 "128.253.41.110:9020".parse().unwrap(),
                 "176.9.15.237:9021".parse().unwrap(),
             ],
             Network::Mainnet => vec![
                 "213.239.193.208:9030".parse().unwrap(),
+                "168.138.185.215:9030".parse().unwrap(),
                 "176.9.15.237:9030".parse().unwrap(),
             ],
         };

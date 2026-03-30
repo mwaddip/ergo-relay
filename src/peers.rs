@@ -88,7 +88,9 @@ fn main() {
 
     loop {
         if attempt > 0 {
-            let delay = std::cmp::min(10 * (attempt as u64), 60);
+            // Exponential backoff: 30s, 60s, 120s, 240s, cap at 300s (5 min)
+            // Aggressive to avoid rate-limiting by peers
+            let delay = std::cmp::min(30 * (1u64 << std::cmp::min(attempt - 1, 4)), 300);
             eprintln!("Retrying in {}s (attempt {})...", delay, attempt + 1);
             std::thread::sleep(std::time::Duration::from_secs(delay));
         }
