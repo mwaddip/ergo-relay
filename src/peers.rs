@@ -66,41 +66,55 @@ fn main() {
 
     let mut known: HashSet<SocketAddr> = HashSet::new();
     let mut reachable: HashSet<SocketAddr> = HashSet::new();
-    let mut to_try: Vec<SocketAddr> = seeds.clone();
+    let max_attempts = 3; // Retry from seeds if no peers found
 
-    for round in 0..MAX_ROUNDS {
-        if reachable.len() >= min_peers {
-            break;
+    for attempt in 0..max_attempts {
+        if attempt > 0 {
+            eprintln!("Retrying seed peers in 10s (attempt {}/{})...", attempt + 1, max_attempts);
+            std::thread::sleep(std::time::Duration::from_secs(10));
+            known.clear(); // Re-try seeds
         }
 
-        eprintln!("Round {}: trying {} peers (have {} reachable)", round + 1, to_try.len(), reachable.len());
+        let mut to_try: Vec<SocketAddr> = seeds.clone();
 
-        let mut new_peers: Vec<SocketAddr> = Vec::new();
-
-        for addr in &to_try {
-            if known.contains(addr) {
-                continue;
+        for round in 0..MAX_ROUNDS {
+            if reachable.len() >= min_peers {
+                break;
             }
-            known.insert(*addr);
 
-            eprint!("  Trying {}... ", addr);
-            match discover_peers(*addr, network) {
-                Ok(peers) => {
-                    eprintln!("got {} peers", peers.len());
-                    reachable.insert(*addr);
-                    for p in peers {
-                        if !known.contains(&p) {
-                            new_peers.push(p);
+            eprintln!("Round {}: trying {} peers (have {} reachable)", round + 1, to_try.len(), reachable.len());
+
+            let mut new_peers: Vec<SocketAddr> = Vec::new();
+
+            for addr in &to_try {
+                if known.contains(addr) {
+                    continue;
+                }
+                known.insert(*addr);
+
+                eprint!("  Trying {}... ", addr);
+                match discover_peers(*addr, network) {
+                    Ok(peers) => {
+                        eprintln!("got {} peers", peers.len());
+                        reachable.insert(*addr);
+                        for p in peers {
+                            if !known.contains(&p) {
+                                new_peers.push(p);
+                            }
                         }
                     }
-                }
-                Err(e) => {
-                    eprintln!("failed: {}", e);
+                    Err(e) => {
+                        eprintln!("failed: {}", e);
+                    }
                 }
             }
+
+            to_try = new_peers;
         }
 
-        to_try = new_peers;
+        if !reachable.is_empty() {
+            break;
+        }
     }
 
     // Write results
