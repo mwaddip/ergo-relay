@@ -219,8 +219,8 @@ fn read_message(stream: &mut TcpStream, magic: &[u8; 4]) -> std::io::Result<(u8,
     let body_len = u32::from_be_bytes([header[5], header[6], header[7], header[8]]) as usize;
     let checksum = &header[9..13];
 
-    // Sanity check: reject absurdly large messages (max 10MB)
-    if body_len > 10 * 1024 * 1024 {
+    // Sanity check: reject oversized messages (max 256KB — normal P2P messages are under 100KB)
+    if body_len > 256 * 1024 {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             format!("Message body too large: {} bytes", body_len),
