@@ -22,6 +22,7 @@ const MAX_ROUNDS: usize = 5;
 
 // Known seed peers (testnet and mainnet)
 const TESTNET_SEEDS: &[&str] = &[
+    "213.239.193.208:9023",  // reliable, consistently available
     "213.239.193.208:9020",
     "128.253.41.110:9020",
     "176.9.15.237:9021",
