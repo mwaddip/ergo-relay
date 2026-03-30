@@ -16,7 +16,7 @@ type Blake2b256 = Blake2b<U32>;
 // ---------------------------------------------------------------------------
 
 pub const MAINNET_MAGIC: [u8; 4] = [1, 0, 2, 4];
-pub const TESTNET_MAGIC: [u8; 4] = [2, 0, 2, 3];
+pub const TESTNET_MAGIC: [u8; 4] = [2, 3, 2, 3]; // Updated after Feb 2026 testnet reset
 
 // Message codes
 const MSG_GET_PEERS: u8 = 1;
