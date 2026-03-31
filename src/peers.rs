@@ -87,78 +87,59 @@ fn main() {
 
     // Track all peers we've ever verified as reachable (grows across runs)
     let mut all_reachable: HashSet<SocketAddr> = HashSet::new();
-    let mut attempt = 0u32;
+    let mut known_this_round: HashSet<SocketAddr> = HashSet::new();
 
-    loop {
-        if attempt > 0 {
-            // Exponential backoff: 30s, 60s, 120s, 240s, cap at 300s (5 min)
-            // Aggressive to avoid rate-limiting by peers
-            let delay = std::cmp::min(30 * (1u64 << std::cmp::min(attempt - 1, 4)), 300);
-            eprintln!("Retrying in {}s (attempt {})...", delay, attempt + 1);
-            std::thread::sleep(std::time::Duration::from_secs(delay));
+    // Start with: previously known peers first (likely still reachable), then seeds
+    let mut to_try: Vec<SocketAddr> = Vec::new();
+    for p in &previously_known {
+        if !known_this_round.contains(p) {
+            to_try.push(*p);
         }
-        attempt += 1;
-
-        let mut known_this_round: HashSet<SocketAddr> = HashSet::new();
-        let mut newly_reachable: HashSet<SocketAddr> = HashSet::new();
-
-        // Start with: previously known peers first (likely still reachable), then seeds
-        let mut to_try: Vec<SocketAddr> = Vec::new();
-        for p in &previously_known {
-            if !known_this_round.contains(p) {
-                to_try.push(*p);
-            }
+    }
+    for s in &seeds {
+        if !known_this_round.contains(s) {
+            to_try.push(*s);
         }
-        for s in &seeds {
-            if !known_this_round.contains(s) {
-                to_try.push(*s);
-            }
-        }
+    }
 
-        for round in 0..MAX_ROUNDS {
-            if newly_reachable.len() + all_reachable.len() >= min_peers {
-                break;
-            }
-
-            eprintln!("Round {}: trying {} peers (have {} reachable)",
-                round + 1, to_try.len(), newly_reachable.len() + all_reachable.len());
-
-            let mut new_peers: Vec<SocketAddr> = Vec::new();
-
-            for addr in &to_try {
-                if known_this_round.contains(addr) {
-                    continue;
-                }
-                known_this_round.insert(*addr);
-
-                eprint!("  Trying {}... ", addr);
-                match discover_peers(*addr, network) {
-                    Ok(peers) => {
-                        eprintln!("got {} peers", peers.len());
-                        newly_reachable.insert(*addr);
-                        for p in peers {
-                            if !known_this_round.contains(&p) {
-                                new_peers.push(p);
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("failed: {}", e);
-                    }
-                }
-            }
-
-            to_try = new_peers;
-        }
-
-        // Merge newly discovered into cumulative set
-        all_reachable.extend(&newly_reachable);
-
+    for round in 0..MAX_ROUNDS {
         if all_reachable.len() >= min_peers {
             break;
         }
 
-        eprintln!("Only {} peer(s) found (need {}), will retry...", all_reachable.len(), min_peers);
+        eprintln!("Round {}: trying {} peers (have {} reachable)",
+            round + 1, to_try.len(), all_reachable.len());
+
+        let mut new_peers: Vec<SocketAddr> = Vec::new();
+
+        for addr in &to_try {
+            if known_this_round.contains(addr) {
+                continue;
+            }
+            known_this_round.insert(*addr);
+
+            eprint!("  Trying {}... ", addr);
+            match discover_peers(*addr, network) {
+                Ok(peers) => {
+                    eprintln!("got {} peers", peers.len());
+                    all_reachable.insert(*addr);
+                    for p in peers {
+                        if !known_this_round.contains(&p) {
+                            new_peers.push(p);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("failed: {}", e);
+                }
+            }
+        }
+
+        to_try = new_peers;
+    }
+
+    if all_reachable.len() < min_peers {
+        eprintln!("Warning: only found {} peer(s) (wanted {})", all_reachable.len(), min_peers);
     }
 
     // Write results — union of all reachable peers (list grows over runs)
