@@ -301,12 +301,7 @@ fn do_broadcast(body: &[u8]) -> Result<String, String> {
     let tx_id_hex = tx_id_bytes.iter().map(|b| format!("{:02x}", b)).collect::<String>();
     eprintln!("Broadcasting tx {} ({} bytes)", tx_id_hex, tx_bytes.len());
 
-    // Determine network from env or default to testnet if .testing-mode exists
-    let network = if std::path::Path::new("/etc/blockhost/.testing-mode").exists() {
-        p2p::Network::Testnet
-    } else {
-        p2p::Network::Mainnet
-    };
+    let network = p2p::detect_network();
 
     let peers_file = std::env::var("ERGO_PEERS_FILE")
         .unwrap_or_else(|_| "/var/lib/blockhost/ergo-peers.json".to_string());

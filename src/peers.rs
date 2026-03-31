@@ -36,10 +36,12 @@ const MAINNET_SEEDS: &[&str] = &[
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    // Detect testnet from --testnet flag OR /etc/blockhost/.testing-mode file
-    let testnet = args.iter().any(|a| a == "--testnet")
-        || std::path::Path::new("/etc/blockhost/.testing-mode").exists();
-    let network = if testnet { Network::Testnet } else { Network::Mainnet };
+    // Detect network: --testnet flag overrides, then ERGO_NETWORK env, then .testing-mode file
+    let network = if args.iter().any(|a| a == "--testnet") {
+        Network::Testnet
+    } else {
+        p2p::detect_network()
+    };
 
     let output = args.iter()
         .position(|a| a == "--output")
@@ -53,6 +55,7 @@ fn main() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(DEFAULT_MIN_PEERS);
 
+    let testnet = matches!(network, Network::Testnet);
     let seeds: Vec<SocketAddr> = if testnet { TESTNET_SEEDS } else { MAINNET_SEEDS }
         .iter()
         .filter_map(|s| s.parse().ok())

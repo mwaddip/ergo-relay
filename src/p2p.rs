@@ -75,13 +75,6 @@ fn read_vlq_length(cursor: &mut Cursor<&[u8]>) -> std::io::Result<usize> {
     Ok(val as usize)
 }
 
-/// Read a u16 big-endian value (used for feature body lengths in Ergo P2P).
-fn read_u16_be(cursor: &mut Cursor<&[u8]>) -> std::io::Result<u16> {
-    let mut bytes = [0u8; 2];
-    cursor.read_exact(&mut bytes)?;
-    Ok(u16::from_be_bytes(bytes))
-}
-
 fn write_utf8_byte_len(buf: &mut Vec<u8>, s: &str) {
     let bytes = s.as_bytes();
     buf.push(bytes.len() as u8);
@@ -128,7 +121,7 @@ pub fn build_handshake(agent_name: &str, peer_name: &str, network: Network) -> V
 
     // Mode feature (id=16): NiPoPoW-bootstrapped light node
     buf.push(16); // feature id
-    buf.extend_from_slice(&5u16.to_be_bytes()); // body length: 5 bytes (u16 big-endian)
+    write_vlq(&mut buf, 5); // body length: 5 bytes (VLQ)
     buf.push(0x00); // stateType = UTXO
     buf.push(0x01); // verifyingTransactions = true
     buf.push(0x01); // nipopowBootstrapped = Some
@@ -137,7 +130,7 @@ pub fn build_handshake(agent_name: &str, peer_name: &str, network: Network) -> V
 
     // Session feature (id=3): 4 bytes magic + 8 bytes random session ID
     buf.push(3); // feature id
-    buf.extend_from_slice(&12u16.to_be_bytes()); // body length: 12 bytes (u16 big-endian)
+    write_vlq(&mut buf, 12); // body length: 12 bytes (VLQ)
     buf.extend_from_slice(&network.magic()); // network magic
     let session_id = rand_u64();
     buf.extend_from_slice(&session_id.to_be_bytes());
@@ -169,23 +162,32 @@ pub fn parse_handshake(data: &[u8]) -> std::io::Result<PeerInfo> {
     if has_addr[0] != 0 {
         let mut addr_len_byte = [0u8; 1];
         cursor.read_exact(&mut addr_len_byte)?;
-        let ip_len = (addr_len_byte[0] as usize).saturating_sub(4);
+        let addr_len = addr_len_byte[0] as usize;
+        // addr_len includes the VLQ port bytes, but we don't know the VLQ length
+        // upfront. Read ip_len bytes (addr_len minus a fixed estimate won't work),
+        // so instead: determine IP version from total addr_len.
+        // IPv4: 4 ip bytes + VLQ port;  IPv6: 16 ip bytes + VLQ port.
+        // We read ip bytes first, then VLQ port.
+        let ip_len = if addr_len >= 16 { 16 } else { 4 };
         let mut ip_bytes = vec![0u8; ip_len];
         cursor.read_exact(&mut ip_bytes)?;
-        // Port as unsigned 4-byte int
-        let mut port_bytes = [0u8; 4];
-        cursor.read_exact(&mut port_bytes)?;
-        let port = u32::from_be_bytes(port_bytes) as u16;
+        // Port is VLQ-encoded (Scorex putUInt → putULong → VLQ)
+        let port = read_vlq(&mut cursor)? as u16;
 
         if ip_len == 4 {
             let ip = std::net::Ipv4Addr::new(ip_bytes[0], ip_bytes[1], ip_bytes[2], ip_bytes[3]);
+            public_address = Some(SocketAddr::new(ip.into(), port));
+        } else if ip_len == 16 {
+            let mut octets = [0u8; 16];
+            octets.copy_from_slice(&ip_bytes);
+            let ip = std::net::Ipv6Addr::from(octets);
             public_address = Some(SocketAddr::new(ip.into(), port));
         }
     }
 
     // Features (skip — parse errors are non-fatal)
-    // Feature body lengths are u16 big-endian (putUShort/getUShort in JVM reference)
-    if let Ok(mut feat_count_buf) = {
+    // Feature body lengths are VLQ (Scorex putUShort → VLQ)
+    if let Ok(feat_count_buf) = {
         let mut buf = [0u8; 1];
         cursor.read_exact(&mut buf).map(|_| buf)
     } {
@@ -193,8 +195,8 @@ pub fn parse_handshake(data: &[u8]) -> std::io::Result<PeerInfo> {
         for _ in 0..feat_count {
             let mut fid = [0u8; 1];
             if cursor.read_exact(&mut fid).is_err() { break; }
-            if let Ok(flen) = read_u16_be(&mut cursor) {
-                let mut fbody = vec![0u8; flen as usize];
+            if let Ok(flen) = read_vlq_length(&mut cursor) {
+                let mut fbody = vec![0u8; flen];
                 if cursor.read_exact(&mut fbody).is_err() { break; }
             } else {
                 break;
@@ -299,6 +301,24 @@ impl Network {
     }
 }
 
+/// Detect network from ERGO_NETWORK env var, falling back to .testing-mode file.
+/// ERGO_NETWORK=testnet → Testnet, ERGO_NETWORK=mainnet → Mainnet.
+/// If unset, /etc/blockhost/.testing-mode existence → Testnet, else Mainnet.
+pub fn detect_network() -> Network {
+    if let Ok(val) = std::env::var("ERGO_NETWORK") {
+        match val.to_lowercase().as_str() {
+            "testnet" | "test" => return Network::Testnet,
+            "mainnet" | "main" => return Network::Mainnet,
+            _ => eprintln!("Warning: unknown ERGO_NETWORK='{}', falling back to file detection", val),
+        }
+    }
+    if std::path::Path::new("/etc/blockhost/.testing-mode").exists() {
+        Network::Testnet
+    } else {
+        Network::Mainnet
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Peer discovery
 // ---------------------------------------------------------------------------
@@ -386,26 +406,31 @@ fn parse_handshake_peer_entry(cursor: &mut Cursor<&[u8]>) -> std::io::Result<Opt
     if has_addr[0] != 0 {
         let mut addr_len_byte = [0u8; 1];
         cursor.read_exact(&mut addr_len_byte)?;
-        let ip_len = (addr_len_byte[0] as usize).saturating_sub(4);
+        let addr_len = addr_len_byte[0] as usize;
+        let ip_len = if addr_len >= 16 { 16 } else { 4 };
         let mut ip_bytes = vec![0u8; ip_len];
         cursor.read_exact(&mut ip_bytes)?;
-        let mut port_bytes = [0u8; 4];
-        cursor.read_exact(&mut port_bytes)?;
-        let port = u32::from_be_bytes(port_bytes) as u16;
+        // Port is VLQ-encoded (Scorex putUInt → putULong → VLQ)
+        let port = read_vlq(cursor)? as u16;
 
         if ip_len == 4 {
             let ip = std::net::Ipv4Addr::new(ip_bytes[0], ip_bytes[1], ip_bytes[2], ip_bytes[3]);
             addr = Some(SocketAddr::new(ip.into(), port));
+        } else if ip_len == 16 {
+            let mut octets = [0u8; 16];
+            octets.copy_from_slice(&ip_bytes);
+            let ip = std::net::Ipv6Addr::from(octets);
+            addr = Some(SocketAddr::new(ip.into(), port));
         }
     }
 
-    // Features (skip) — body lengths are u16 big-endian
+    // Features (skip) — body lengths are VLQ (Scorex putUShort → VLQ)
     let mut feat_count = [0u8; 1];
     cursor.read_exact(&mut feat_count)?;
     for _ in 0..feat_count[0] {
         let mut fid = [0u8; 1];
         cursor.read_exact(&mut fid)?;
-        let flen = read_u16_be(cursor)? as usize;
+        let flen = read_vlq_length(cursor)?;
         let mut fbody = vec![0u8; flen];
         cursor.read_exact(&mut fbody)?;
     }
