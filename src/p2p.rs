@@ -119,14 +119,16 @@ pub fn build_handshake(agent_name: &str, peer_name: &str, network: Network) -> V
     // 2 features: Mode + Session
     buf.push(2); // feature count
 
-    // Mode feature (id=16): NiPoPoW-bootstrapped light node
+    // Mode feature (id=16): non-verifying light client.
+    // Peers don't expect SyncInfo exchanges or block requests from
+    // nodes that advertise verifying=false. This prevents bans for
+    // not participating in gossip after the handshake.
     buf.push(16); // feature id
-    write_vlq(&mut buf, 5); // body length: 5 bytes (VLQ)
+    write_vlq(&mut buf, 4); // body length: 4 bytes (VLQ)
     buf.push(0x00); // stateType = UTXO
-    buf.push(0x01); // verifyingTransactions = true
-    buf.push(0x01); // nipopowBootstrapped = Some
-    buf.push(0x02); // zigzag+VLQ of value 1
-    buf.push(0x01); // blocksToKeep = zigzag+VLQ of -1
+    buf.push(0x00); // verifyingTransactions = false
+    buf.push(0x00); // nipopowBootstrapped = None
+    buf.push(0x00); // blocksToKeep = zigzag+VLQ of 0
 
     // Session feature (id=3): 4 bytes magic + 8 bytes random session ID
     buf.push(3); // feature id
@@ -336,11 +338,26 @@ pub fn discover_peers(addr: SocketAddr, network: Network) -> std::io::Result<Vec
     stream.write_all(&hs)?;
     stream.flush()?;
 
-    // Read handshake response (raw, variable length)
-    // Give the peer a moment to respond, then read whatever's available
-    std::thread::sleep(Duration::from_millis(500));
+    // Read handshake response (raw, variable length).
+    // Loop until we get enough data — peers may send in chunks.
     let mut hs_buf = vec![0u8; 4096];
-    let n = stream.read(&mut hs_buf)?;
+    let mut total = 0;
+    for _ in 0..10 {
+        match stream.read(&mut hs_buf[total..]) {
+            Ok(0) => break,
+            Ok(n) => {
+                total += n;
+                // Try parsing — if it succeeds, we have enough
+                if parse_handshake(&hs_buf[..total]).is_ok() {
+                    break;
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut => break,
+            Err(e) => return Err(e),
+        }
+    }
+    let n = total;
     if n == 0 {
         return Err(std::io::Error::new(std::io::ErrorKind::ConnectionReset, "Empty handshake"));
     }
